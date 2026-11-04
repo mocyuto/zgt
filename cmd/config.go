@@ -9,6 +9,7 @@ import (
 	"github.com/mocyuto/zgt/internal/config"
 	"github.com/mocyuto/zgt/internal/gitroot"
 	"github.com/mocyuto/zgt/internal/logger"
+	"github.com/mocyuto/zgt/internal/state"
 	"github.com/mocyuto/zgt/internal/template"
 	"github.com/mocyuto/zgt/internal/zcontext"
 	"github.com/spf13/cobra"
@@ -37,6 +38,7 @@ var configCmd = &cobra.Command{
 
 		// Prepare context for placeholder replacement
 		cwd, _ := os.Getwd()
+		_ = state.LoadState()
 		ctx := zcontext.New(cwd, "")
 
 		var replacedConfig config.Config

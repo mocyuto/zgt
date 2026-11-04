@@ -157,7 +157,7 @@ Placeholders can be used in `hooks`, `env`, and `tmux.window_name`.
 | `{{.Path}}`          | Absolute path of the worktree directory. |
 | `{{.Repo}}`          | Name of the main project root directory. |
 | `{{.CurrentDir}}`    | Current working directory name.          |
-| `{{.Branch}}`        | Target branch name.                      |
+| `{{.Branch}}`        | Target branch name. Stays the branch used at `zgt add` even after switching branches inside the worktree. |
 | `{{.TargetBranch}}`  | Alias for `{{.Branch}}`.                 |
 | `{{.CurrentBranch}}` | Branch name where `zgt` was executed.    |
 | `{{.Profile}}`       | Selected profile name (empty for default). |

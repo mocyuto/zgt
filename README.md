@@ -105,7 +105,7 @@ When a feature is finished, `zgt` handles the teardown in one go.
 
 - **Behavior**: Deletes the worktree directory and its associated local branch simultaneously (configurable).
 - **Cleanup**: The Port Index is released and becomes available for future worktrees. You can also trigger cleanup scripts via `hooks.rm`.
-- **Switched branches**: If you checked out a different branch inside a worktree at the auto-generated path (so the folder name no longer matches the branch), `zgt rm <original-branch>` asks whether to remove the folder too. Answering `y` removes the worktree folder; otherwise only the original branch is deleted. The branch currently checked out in the folder is kept.
+- **Switched branches**: If you checked out a different branch inside a worktree (so it no longer matches the branch it was created with), `zgt rm <original-branch>` asks whether to remove the folder too. The original branch is recorded in `zgt state` at `zgt add` time (worktrees created by older versions fall back to the auto-generated path), and is also offered in shell completion. Answering `y` removes the worktree folder; otherwise only the original branch is deleted. The branch currently checked out in the folder is kept.
 
 ```bash
 # Done with the feature. Delete both directory and branch.
@@ -354,7 +354,7 @@ Placeholders can be used in `hooks`, `env`, and `tmux.window_name` values.
 | `{{.Path}}`          | Absolute path of the worktree directory.                      |
 | `{{.Repo}}`          | Name of the main project root directory.                      |
 | `{{.CurrentDir}}`    | Name of the current working directory.                        |
-| `{{.Branch}}`        | Name of the target branch (provided as argument).             |
+| `{{.Branch}}`        | Name of the target branch (provided as argument). For worktrees created by `zgt add`, this stays the branch used at creation even if you switch branches inside the worktree. |
 | `{{.TargetBranch}}`  | Alias for `{{.Branch}}`.                                      |
 | `{{.CurrentBranch}}` | Name of the branch you are currently on when executing `zgt`. |
 | `{{.Profile}}`       | Selected profile name (empty for default). See [Profiles](#profiles). |
