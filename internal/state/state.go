@@ -33,6 +33,7 @@ type ProjectState struct {
 type WorktreeState struct {
 	Ports   map[string]int `json:"ports"`             // map[portKey]portIndex
 	Profile string         `json:"profile,omitempty"` // selected profile name (empty for default)
+	Branch  string         `json:"branch,omitempty"`  // branch name at `zgt add` time
 }
 
 var AppState State
@@ -224,40 +225,85 @@ func GetCurrentWorktree() (*WorktreeState, bool) {
 	if err != nil {
 		return nil, false
 	}
-	absCwd := NormalizePath(cwd)
+	return FindWorktree(cwd)
+}
 
-	// Search across all projects for the best matching worktree path
-	type wtMatch struct {
-		wt   *WorktreeState
-		path string
-	}
-	var matches []wtMatch
+// FindWorktree returns the WorktreeState for the most specific managed
+// worktree containing path (path itself or any subdirectory of it).
+func FindWorktree(path string) (*WorktreeState, bool) {
+	absPath := NormalizePath(path)
 
+	var best *WorktreeState
+	bestLen := -1
 	for _, proj := range AppState.Projects {
 		for p, wt := range proj.Worktrees {
-			rel, err := filepath.Rel(p, absCwd)
-			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-				matches = append(matches, wtMatch{wt, p})
+			rel, err := filepath.Rel(p, absPath)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				continue
+			}
+			if len(p) > bestLen {
+				best, bestLen = wt, len(p)
 			}
 		}
 	}
+	return best, best != nil
+}
 
-	if len(matches) == 0 {
-		return nil, false
+// OriginalBranch returns the branch recorded at `zgt add` time for the
+// worktree rooted exactly at path, or "" if unknown. State must be loaded.
+func OriginalBranch(path string) string {
+	n := NormalizePath(path)
+	for _, proj := range AppState.Projects {
+		if wt, ok := proj.Worktrees[n]; ok {
+			return wt.Branch
+		}
 	}
+	return ""
+}
 
-	// Sort by path length descending to get the most specific match
-	sort.Slice(matches, func(i, j int) bool {
-		return len(matches[i].path) > len(matches[j].path)
-	})
+// FindPathsByBranch returns existing worktree paths (sorted) whose recorded
+// original branch equals branch within the given project.
+func FindPathsByBranch(projectName, branch string) []string {
+	if branch == "" {
+		return nil
+	}
+	var res []string
+	for p, wt := range AppState.Projects[projectName].Worktrees {
+		if wt.Branch != branch {
+			continue
+		}
+		if _, err := os.Stat(p); err != nil {
+			continue // 手動削除済みのstaleエントリ
+		}
+		res = append(res, p)
+	}
+	sort.Strings(res)
+	return res
+}
 
-	return matches[0].wt, true
+// SetBranch records the original branch for the given worktree path within a
+// project. The caller is responsible for persisting it via SaveState.
+func SetBranch(projectName, path, branch string) {
+	getOrCreate(projectName, path).Branch = branch
+}
+
+// ClearBranch removes the recorded original branch if the worktree entry
+// exists. The caller is responsible for persisting it via SaveState.
+func ClearBranch(projectName, path string) {
+	if wt, ok := AppState.Projects[projectName].Worktrees[NormalizePath(path)]; ok {
+		wt.Branch = ""
+	}
 }
 
 // SetProfile stores the profile name for the given worktree path within a
 // project. The state is updated in memory; the caller is responsible for
 // persisting it via SaveState.
 func SetProfile(projectName, path, profile string) {
+	getOrCreate(projectName, path).Profile = profile
+}
+
+// プロジェクト・worktreeエントリの取得（なければ作成）
+func getOrCreate(projectName, path string) *WorktreeState {
 	path = NormalizePath(path)
 	if AppState.Projects == nil {
 		AppState.Projects = make(map[string]ProjectState)
@@ -270,7 +316,7 @@ func SetProfile(projectName, path, profile string) {
 	if !ok {
 		wt = &WorktreeState{Ports: make(map[string]int)}
 	}
-	wt.Profile = profile
 	proj.Worktrees[path] = wt
 	AppState.Projects[projectName] = proj
+	return wt
 }

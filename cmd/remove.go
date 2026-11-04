@@ -31,16 +31,19 @@ var removeCmd = &cobra.Command{
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		completions, err := git.GetWorktreeCompletions()
+		wts, err := git.GetWorktrees()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
-		return completions, cobra.ShellCompDirectiveNoFileComp
+		mainRoot, _ := gitroot.GetMainProjectRoot()
+		_ = state.LoadState()
+		return removeCompletions(wts, state.AppState.Projects[filepath.Base(mainRoot)]), cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		branchOrPath := args[0]
 		var path, branch string
 		mainRoot, _ := gitroot.GetMainProjectRoot()
+		_ = state.LoadState()
 
 		// worktree内でブランチ切り替え済みのケース（サフィックス一致より優先）
 		_, exactErr := git.GetBranchWorktree(branchOrPath)
@@ -53,6 +56,9 @@ var removeCmd = &cobra.Command{
 				return logger.Errorf("aborted: no answer to prompt (pipe 'y' or 'n')")
 			}
 			if !yes {
+				// worktreeは現ブランチの扱いへ（stale参照防止）
+				state.ClearBranch(filepath.Base(mainRoot), mp)
+				_ = state.SaveState()
 				if !keepBranch {
 					logger.Info("--- Deleting branch %s ---", branch)
 					if err := git.DeleteBranch(branch); err != nil {
@@ -77,7 +83,6 @@ var removeCmd = &cobra.Command{
 		// so that profile-specific rm hooks (e.g. isolated DB cleanup) run.
 		absPath := state.NormalizePath(path)
 		projectName := filepath.Base(mainRoot)
-		_ = state.LoadState()
 		profile := ""
 		if proj, ok := state.AppState.Projects[projectName]; ok {
 			if wt, ok := proj.Worktrees[absPath]; ok {
@@ -117,17 +122,47 @@ var removeCmd = &cobra.Command{
 	},
 }
 
-// zgt add の自動パスにある、別ブランチがチェックアウトされたworktreeの検出
+// 作成時ブランチ（state、なければ自動パス）から、別ブランチがチェックアウトされたworktreeの検出
 func findMismatchedWorktree(mainRoot, branch string) (path, actualBranch string, ok bool) {
 	if mainRoot == "" {
 		return "", "", false
 	}
-	expected := filepath.Join(filepath.Dir(mainRoot), fmt.Sprintf("%s-%s", filepath.Base(mainRoot), branch))
-	p, b, err := git.ResolveWorktreeInfo(expected)
-	if err != nil || b == branch {
-		return "", "", false
+	candidates := append(state.FindPathsByBranch(filepath.Base(mainRoot), branch),
+		filepath.Join(filepath.Dir(mainRoot), fmt.Sprintf("%s-%s", filepath.Base(mainRoot), branch)))
+	for _, c := range candidates {
+		p, b, err := git.ResolveWorktreeInfo(c)
+		if err == nil && b != branch {
+			return p, b, true
+		}
 	}
-	return p, b, true
+	return "", "", false
+}
+
+// 現在のブランチ＋ブランチ切替済みworktreeの作成時ブランチ（説明付き）
+func removeCompletions(wts []git.Worktree, proj state.ProjectState) []string {
+	var res []string
+	current := make(map[string]bool)
+	for _, wt := range wts {
+		if wt.Branch == "" {
+			continue
+		}
+		b := strings.TrimPrefix(wt.Branch, "refs/heads/")
+		current[b] = true
+		res = append(res, b)
+	}
+	for _, wt := range wts {
+		if wt.Branch == "" {
+			continue // detached HEADはrmで解決不可
+		}
+		ws, ok := proj.Worktrees[state.NormalizePath(wt.Path)]
+		if !ok || ws.Branch == "" || current[ws.Branch] {
+			continue
+		}
+		now := strings.TrimPrefix(wt.Branch, "refs/heads/")
+		res = append(res, fmt.Sprintf("%s\tworktree %s (now on %s)", ws.Branch, wt.Path, now))
+		current[ws.Branch] = true
+	}
+	return res
 }
 
 // y/yes のみ true、入力なしEOFはエラー

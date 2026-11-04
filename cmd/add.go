@@ -132,6 +132,8 @@ Both forms will automatically create the branch if it does not already exist.`,
 		if profileFlag != "" {
 			state.SetProfile(projectName, absPath, profileFlag)
 		}
+		// worktree内でブランチ切替後もテンプレート・rmで使う作成時ブランチ
+		state.SetBranch(projectName, absPath, branch)
 		_ = state.SaveState()
 
 		if config.AppConfig.GitHooks.Enabled {

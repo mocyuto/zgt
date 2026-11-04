@@ -9,6 +9,7 @@ import (
 )
 
 func TestConfigCmd_Raw(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // 実stateの読み込み防止
 	// Set up dummy config with placeholders
 	config.AppConfig = config.Config{
 		Env: map[string]string{
@@ -31,6 +32,7 @@ func TestConfigCmd_Raw(t *testing.T) {
 }
 
 func TestConfigCmd_Replaced(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // 実stateの読み込み防止
 	// Set up dummy config with placeholders
 	config.AppConfig = config.Config{
 		Env: map[string]string{

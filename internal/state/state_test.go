@@ -241,3 +241,91 @@ func TestGetCurrentWorktree_Profile(t *testing.T) {
 		t.Errorf("GetCurrentWorktreePorts = %v (ok=%v)", ports, ok)
 	}
 }
+
+func TestSetBranchPreservesOtherFields(t *testing.T) {
+	tmpDir, _ := filepath.EvalSymlinks(t.TempDir())
+	wtPath := filepath.Join(tmpDir, "wt")
+	os.MkdirAll(wtPath, 0755)
+
+	AppState.Projects = make(map[string]ProjectState)
+	AssignPortIndex("pj", wtPath, "http", 3000)
+	SetProfile("pj", wtPath, "migration")
+	SetBranch("pj", wtPath, "hoge")
+
+	wt := AppState.Projects["pj"].Worktrees[NormalizePath(wtPath)]
+	if wt.Branch != "hoge" || wt.Profile != "migration" || wt.Ports["http"] != 1 {
+		t.Errorf("unexpected state: %+v", wt)
+	}
+}
+
+func TestFindWorktreeAndOriginalBranch(t *testing.T) {
+	tmpDir, _ := filepath.EvalSymlinks(t.TempDir())
+	outerPath := filepath.Join(tmpDir, "repo-hoge")
+	nestedPath := filepath.Join(outerPath, ".worktrees", "x")
+	os.MkdirAll(filepath.Join(nestedPath, "sub"), 0755)
+
+	AppState.Projects = map[string]ProjectState{
+		"repo": {Worktrees: map[string]*WorktreeState{
+			outerPath: {Branch: "hoge"},
+		}},
+	}
+
+	if got := OriginalBranch(outerPath); got != "hoge" {
+		t.Errorf("OriginalBranch(outer) = %q, want hoge", got)
+	}
+	// 管理外のネストworktreeは親のブランチを継承しない
+	if got := OriginalBranch(nestedPath); got != "" {
+		t.Errorf("OriginalBranch(nested) = %q, want empty", got)
+	}
+	// FindWorktreeはcwd用にサブディレクトリも一致
+	if wt, ok := FindWorktree(filepath.Join(nestedPath, "sub")); !ok || wt.Branch != "hoge" {
+		t.Errorf("FindWorktree(nested/sub) = %+v, %v", wt, ok)
+	}
+	// 前方一致だけのパスは対象外
+	if _, ok := FindWorktree(outerPath + "-x"); ok {
+		t.Error("FindWorktree(repo-hoge-x) should not match repo-hoge")
+	}
+}
+
+func TestFindPathsByBranch(t *testing.T) {
+	tmpDir, _ := filepath.EvalSymlinks(t.TempDir())
+	a := filepath.Join(tmpDir, "a")
+	b := filepath.Join(tmpDir, "b")
+	gone := filepath.Join(tmpDir, "gone")
+	os.MkdirAll(a, 0755)
+	os.MkdirAll(b, 0755)
+
+	AppState.Projects = map[string]ProjectState{
+		"pj": {Worktrees: map[string]*WorktreeState{
+			b:                          {Branch: "hoge"},
+			a:                          {Branch: "hoge"},
+			gone:                       {Branch: "hoge"},
+			filepath.Join(tmpDir, "c"): {},
+		}},
+	}
+	got := FindPathsByBranch("pj", "hoge")
+	if len(got) != 2 || got[0] != a || got[1] != b {
+		t.Errorf("FindPathsByBranch(hoge) = %v, want [%s %s]", got, a, b)
+	}
+	for _, c := range []struct{ pj, br string }{{"pj", "fuga"}, {"pj", ""}, {"other", "hoge"}} {
+		if got := FindPathsByBranch(c.pj, c.br); len(got) != 0 {
+			t.Errorf("FindPathsByBranch(%q, %q) = %v, want empty", c.pj, c.br, got)
+		}
+	}
+}
+
+func TestClearBranch(t *testing.T) {
+	AppState.Projects = map[string]ProjectState{
+		"pj": {Worktrees: map[string]*WorktreeState{"/a": {Branch: "hoge", Profile: "p"}}},
+	}
+	ClearBranch("pj", "/a")
+	if wt := AppState.Projects["pj"].Worktrees["/a"]; wt.Branch != "" || wt.Profile != "p" {
+		t.Errorf("unexpected state after ClearBranch: %+v", wt)
+	}
+	// 未登録パス・プロジェクトはエントリを作らない
+	ClearBranch("pj", "/missing")
+	ClearBranch("none", "/a")
+	if len(AppState.Projects["pj"].Worktrees) != 1 || len(AppState.Projects) != 1 {
+		t.Errorf("ClearBranch should not create entries: %+v", AppState.Projects)
+	}
+}
