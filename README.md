@@ -105,6 +105,7 @@ When a feature is finished, `zgt` handles the teardown in one go.
 
 - **Behavior**: Deletes the worktree directory and its associated local branch simultaneously (configurable).
 - **Cleanup**: The Port Index is released and becomes available for future worktrees. You can also trigger cleanup scripts via `hooks.rm`.
+- **Switched branches**: If you checked out a different branch inside a worktree at the auto-generated path (so the folder name no longer matches the branch), `zgt rm <original-branch>` asks whether to remove the folder too. Answering `y` removes the worktree folder; otherwise only the original branch is deleted. The branch currently checked out in the folder is kept.
 
 ```bash
 # Done with the feature. Delete both directory and branch.

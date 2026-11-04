@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/mocyuto/zgt/internal/git"
 	"github.com/mocyuto/zgt/internal/gitroot"
@@ -36,23 +40,42 @@ var removeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		branchOrPath := args[0]
 		var path, branch string
+		mainRoot, _ := gitroot.GetMainProjectRoot()
 
-		// Try to resolve branch and path
-		p, b, err := git.ResolveWorktreeInfo(branchOrPath)
-		if err != nil {
+		// worktree内でブランチ切り替え済みのケース（サフィックス一致より優先）
+		_, exactErr := git.GetBranchWorktree(branchOrPath)
+		mp, mb, mismatched := findMismatchedWorktree(mainRoot, branchOrPath)
+		if exactErr != nil && mismatched {
+			branch = branchOrPath
+			msg := fmt.Sprintf("Worktree %s now has branch '%s' checked out (not '%s'). Remove the folder too? [y/N]: ", mp, mb, branchOrPath)
+			yes, err := confirm(cmd.InOrStdin(), cmd.ErrOrStderr(), msg)
+			if err != nil {
+				return logger.Errorf("aborted: no answer to prompt (pipe 'y' or 'n')")
+			}
+			if !yes {
+				if !keepBranch {
+					logger.Info("--- Deleting branch %s ---", branch)
+					if err := git.DeleteBranch(branch); err != nil {
+						logger.Warn("failed to delete branch %s: %v", branch, err)
+					}
+				}
+				logger.Success("--- Done! (worktree kept) ---")
+				return nil
+			}
+			path = mp
+		} else if p, b, err := git.ResolveWorktreeInfo(branchOrPath); err == nil {
+			path = p
+			branch = b
+		} else {
 			logger.Info("Notice: Could not resolve worktree for '%s' in list, trying as path...", branchOrPath)
 			path = branchOrPath
 			// If it was a path, we might still want to find its branch for deletion
 			_, branch, _ = git.ResolveWorktreeInfo(path)
-		} else {
-			path = p
-			branch = b
 		}
 
 		// Resolve profile from state BEFORE removing the worktree entry,
 		// so that profile-specific rm hooks (e.g. isolated DB cleanup) run.
 		absPath := state.NormalizePath(path)
-		mainRoot, _ := gitroot.GetMainProjectRoot()
 		projectName := filepath.Base(mainRoot)
 		_ = state.LoadState()
 		profile := ""
@@ -92,6 +115,33 @@ var removeCmd = &cobra.Command{
 		logger.Success("--- Done!---")
 		return nil
 	},
+}
+
+// zgt add の自動パスにある、別ブランチがチェックアウトされたworktreeの検出
+func findMismatchedWorktree(mainRoot, branch string) (path, actualBranch string, ok bool) {
+	if mainRoot == "" {
+		return "", "", false
+	}
+	expected := filepath.Join(filepath.Dir(mainRoot), fmt.Sprintf("%s-%s", filepath.Base(mainRoot), branch))
+	p, b, err := git.ResolveWorktreeInfo(expected)
+	if err != nil || b == branch {
+		return "", "", false
+	}
+	return p, b, true
+}
+
+// y/yes のみ true、入力なしEOFはエラー
+func confirm(in io.Reader, out io.Writer, msg string) (bool, error) {
+	fmt.Fprint(out, msg)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && line == "" {
+		return false, err
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true, nil
+	}
+	return false, nil
 }
 
 func init() {

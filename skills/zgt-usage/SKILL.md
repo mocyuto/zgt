@@ -36,6 +36,7 @@ Use `zgt rm <branch>` to cleanup.
 - It deletes the associated local branch (controllable via `--keep-branch`).
 - It safely closes the associated tmux window (if `tmux.keep_open` is false).
 - It releases the assigned port index.
+- If a different branch was checked out inside a worktree at the auto-generated path (folder name no longer matches the branch), `zgt rm <original-branch>` prompts `[y/N]` whether to remove the folder too. `y` removes the worktree folder; otherwise only the original branch is deleted. The currently checked-out branch is kept. Pipe `y`/`n` (e.g. `echo y | zgt rm <branch>`) when running non-interactively; with no input it aborts without deleting anything.
 
 - Use `zgt sync` to bring changes from a worktree back to the project root.
 - Use `zgt sync -a` / `--all` for immediate sync of all files.
